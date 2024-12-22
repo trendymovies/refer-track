@@ -3,87 +3,89 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Referral Leaderboard</title>
-  <!-- Firebase Libraries -->
-  <script src="https://www.gstatic.com/firebasejs/9.14.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.14.0/firebase-database-compat.js"></script>
+  <title>Admin User Management</title>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
       margin: 20px;
-      background-color: #f4f4f9;
-    }
-    h1 {
-      text-align: center;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 20px;
     }
     th, td {
       border: 1px solid #ddd;
-      padding: 10px;
-      text-align: center;
+      padding: 8px;
+      text-align: left;
     }
     th {
-      background-color: #4CAF50;
-      color: white;
+      background-color: #f2f2f2;
     }
-    tr:nth-child(1) {
-      background-color: #FFD700; /* Gold for 1st place */
+    .search-bar {
+      margin-bottom: 20px;
     }
-    tr:nth-child(2) {
-      background-color: #C0C0C0; /* Silver for 2nd place */
-    }
-    tr:nth-child(3) {
-      background-color: #CD7F32; /* Bronze for 3rd place */
-    }
-    button {
+    .button {
       background-color: #4CAF50;
       color: white;
       border: none;
-      padding: 5px 10px;
+      padding: 8px 16px;
       cursor: pointer;
     }
-    button:hover {
+    .button:hover {
       background-color: #45a049;
-    }
-    input {
-      padding: 5px;
-      margin-right: 10px;
     }
   </style>
 </head>
 <body>
-  <h1>Admin Referral Leaderboard</h1>
+  <h1>Admin User Management</h1>
 
-  <!-- Search Box -->
-  <div>
-    <label for="searchEmail">Search by Email: </label>
-    <input type="text" id="searchEmail" placeholder="Enter email to search">
-    <button onclick="searchUser()">Search</button>
+  <div class="search-bar">
+    <input type="text" id="searchInput" placeholder="Search by name, email, or referral code">
+    <button class="button" onclick="searchUsers()">Search</button>
   </div>
 
-  <!-- Leaderboard Table -->
-  <table id="leaderboard">
+  <table>
     <thead>
       <tr>
-        <th>Rank</th>
         <th>Name</th>
-        <th>Login Method</th>
-        <th>Referral Code</th>
-        <th>Referred By Code</th>
         <th>Email</th>
-        <th>Total Referrals</th>
+        <th>Referral Code</th>
+        <th>Referred By</th>
         <th>Points</th>
+        <th>Total Referrals</th>
         <th>Actions</th>
       </tr>
     </thead>
-    <tbody id="leaderboardBody"></tbody>
+    <tbody id="userTable"></tbody>
   </table>
 
-  <!-- Firebase and Script -->
+  <!-- User Details Popup -->
+  <div id="userDetailsPopup" style="display: none; position: fixed; top: 10%; left: 10%; right: 10%; background: #fff; border: 1px solid #ddd; padding: 20px;">
+    <h2>User Details</h2>
+    <div id="userDetails"></div>
+    <button class="button" onclick="viewReferralHistory()">View Referral History</button>
+    <button class="button" onclick="closePopup()">Close</button>
+  </div>
+
+  <!-- Referral History Page -->
+  <div id="referralHistory" style="display: none;">
+    <h2>Referral History</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Referral Code</th>
+          <th>Last Login</th>
+        </tr>
+      </thead>
+      <tbody id="referralHistoryTable"></tbody>
+    </table>
+    <button class="button" onclick="closeReferralHistory()">Back</button>
+  </div>
+
   <script>
     // Firebase Configuration
     const firebaseConfig = {
@@ -96,99 +98,128 @@
       appId: "1:699469684359:web:34cc2adfc8019b89a76222",
       measurementId: "G-54SX69JVY3"
     };
-
     firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
 
-    const leaderboardBody = document.getElementById("leaderboardBody");
+    const database = firebase.database();
+    let currentUserId = null;
 
-    // Fetch and Display Leaderboard
-    function loadLeaderboard() {
-      db.ref("/users").once("value", snapshot => {
+    // Fetch all users
+    function fetchUsers() {
+      database.ref('users').once('value').then(snapshot => {
         const users = snapshot.val();
-        leaderboardBody.innerHTML = ""; // Clear table
-
-        // Process users: calculate total referrals and sort by referrals
-        const rankedUsers = Object.keys(users).map(key => {
-          const user = users[key];
-          const totalReferrals = calculateTotalReferrals(users, user.referralCode);
-          return { ...user, totalReferrals };
-        }).sort((a, b) => b.totalReferrals - a.totalReferrals);
-
-        // Render leaderboard with rankings
-        rankedUsers.forEach((user, index) => {
-          leaderboardBody.innerHTML += `
-            <tr>
-              <td>${index + 1}${getOrdinal(index + 1)}</td>
-              <td>${user.name}</td>
-              <td>${user.loginMethod}</td>
-              <td>${user.referralCode}</td>
-              <td>${user.referredBy || "N/A"}</td>
-              <td>${user.email}</td>
-              <td>${user.totalReferrals}</td>
-              <td>${user.points}</td>
-              <td><button onclick="viewDetails('${user.referralCode}')">View Details</button></td>
-            </tr>
+        const tableBody = document.getElementById('userTable');
+        tableBody.innerHTML = '';
+        Object.keys(users).forEach(uid => {
+          const user = users[uid];
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${user.name}</td>
+            <td>${user.email}</td>
+            <td>${user.referralCode}</td>
+            <td>${user.referredBy || 'N/A'}</td>
+            <td>${user.points}</td>
+            <td>${user.totalReferrals}</td>
+            <td><button class="button" onclick="viewUserDetails('${uid}')">View Details</button></td>
           `;
+          tableBody.appendChild(row);
         });
       });
     }
 
-    // Calculate Total Referrals
-    function calculateTotalReferrals(users, referralCode) {
-      return Object.values(users).filter(user => user.referredBy === referralCode).length;
-    }
-
-    // Helper: Get Ordinal Suffix for Ranks
-    function getOrdinal(n) {
-      const s = ["th", "st", "nd", "rd"];
-      const v = n % 100;
-      return s[(v - 20) % 10] || s[v] || s[0];
-    }
-
-    // View Details of Referred Users
-    function viewDetails(referralCode) {
-      db.ref("/users").once("value", snapshot => {
+    // Search users
+    function searchUsers() {
+      const query = document.getElementById('searchInput').value.toLowerCase();
+      database.ref('users').once('value').then(snapshot => {
         const users = snapshot.val();
-        const referredUsers = Object.values(users).filter(user => user.referredBy === referralCode);
-
-        alert(
-          `Referred Users for Code: ${referralCode}\n` +
-          referredUsers.map(user => `${user.name} (${user.email})`).join("\n")
-        );
-      });
-    }
-
-    // Search User by Email
-    function searchUser() {
-      const searchEmail = document.getElementById("searchEmail").value.toLowerCase();
-
-      db.ref("/users").once("value", snapshot => {
-        const users = snapshot.val();
-        leaderboardBody.innerHTML = ""; // Clear table
-
-        Object.keys(users).forEach(key => {
-          const user = users[key];
-          if (user.email.toLowerCase().includes(searchEmail)) {
-            leaderboardBody.innerHTML += `
-              <tr>
-                <td>${user.name}</td>
-                <td>${user.loginMethod}</td>
-                <td>${user.referralCode}</td>
-                <td>${user.referredBy || "N/A"}</td>
-                <td>${user.email}</td>
-                <td>${calculateTotalReferrals(users, user.referralCode)}</td>
-                <td>${user.points}</td>
-                <td><button onclick="viewDetails('${user.referralCode}')">View Details</button></td>
-              </tr>
+        const tableBody = document.getElementById('userTable');
+        tableBody.innerHTML = '';
+        Object.keys(users).forEach(uid => {
+          const user = users[uid];
+          if (
+            user.name.toLowerCase().includes(query) ||
+            user.email.toLowerCase().includes(query) ||
+            user.referralCode.toLowerCase().includes(query)
+          ) {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+              <td>${user.name}</td>
+              <td>${user.email}</td>
+              <td>${user.referralCode}</td>
+              <td>${user.referredBy || 'N/A'}</td>
+              <td>${user.points}</td>
+              <td>${user.totalReferrals}</td>
+              <td><button class="button" onclick="viewUserDetails('${uid}')">View Details</button></td>
             `;
+            tableBody.appendChild(row);
           }
         });
       });
     }
 
-    // Load leaderboard initially
-    window.onload = loadLeaderboard;
+    // View user details
+    function viewUserDetails(uid) {
+      currentUserId = uid;
+      database.ref(`users/${uid}`).once('value').then(snapshot => {
+        const user = snapshot.val();
+        const userDetails = document.getElementById('userDetails');
+        userDetails.innerHTML = `
+          <p><strong>Name:</strong> ${user.name}</p>
+          <p><strong>Email:</strong> ${user.email}</p>
+          <p><strong>Referral Code:</strong> ${user.referralCode}</p>
+          <p><strong>Referred By:</strong> ${user.referredBy || 'N/A'}</p>
+          <p><strong>Points:</strong> ${user.points}</p>
+          <p><strong>Total Referrals:</strong> ${user.totalReferrals}</p>
+          <p><strong>Last Login:</strong> ${user.lastLoginTime}</p>
+        `;
+        document.getElementById('userDetailsPopup').style.display = 'block';
+      });
+    }
+
+    // Close user details popup
+    function closePopup() {
+      document.getElementById('userDetailsPopup').style.display = 'none';
+    }
+
+    // View referral history
+    function viewReferralHistory() {
+      document.getElementById('userDetailsPopup').style.display = 'none';
+      document.getElementById('referralHistory').style.display = 'block';
+
+      database.ref(`users/${currentUserId}`).once('value').then(snapshot => {
+        const userData = snapshot.val();
+        if (userData) {
+          const referralCode = userData.referralCode;
+          database.ref('users').once('value').then(snapshot => {
+            const allUsers = snapshot.val();
+            const referredUsers = Object.values(allUsers || {}).filter(
+              user => user.referredBy === referralCode
+            );
+
+            const tableBody = document.getElementById('referralHistoryTable');
+            tableBody.innerHTML = '';
+
+            referredUsers.forEach(user => {
+              const row = document.createElement('tr');
+              row.innerHTML = `
+                <td>${user.name}</td>
+                <td>${user.email}</td>
+                <td>${user.referralCode}</td>
+                <td>${user.lastLoginTime}</td>
+              `;
+              tableBody.appendChild(row);
+            });
+          });
+        }
+      });
+    }
+
+    // Close referral history
+    function closeReferralHistory() {
+      document.getElementById('referralHistory').style.display = 'none';
+    }
+
+    // Initial fetch
+    fetchUsers();
   </script>
 </body>
 </html>
